@@ -17,5 +17,6 @@ set_property(TARGET lua51 PROPERTY
              IMPORTED_IMPLIB "D:/Lua/lua-5.1.5/src/lua51.lib")
 
 add_library(luasec-mbedtls SHARED context.c tls.c)
+set_target_properties(luasec-mbedtls PROPERTIES OUTPUT_NAME "tls") 
 target_link_libraries(luasec-mbedtls mbedtls lua51)
 target_include_directories(luasec-mbedtls PUBLIC "D:/Lua/lua-5.1.5/src")
