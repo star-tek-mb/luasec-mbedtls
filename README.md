@@ -17,6 +17,13 @@ print(sock:send('GET / HTTP/1.0\r\nHost: www.google.com\r\n\r\n'))
 print(sock:receive('*a'))
 ```
 
+# Credits
+
+- LuaSec - initial porting idea
+- mbedTLS - lightweight tls to integrate
+- luasocket - for buffer io, *a,*l - pattern reading
+- Godot Engine - mbedTLS code usage example
+
 # Build instructions
 Prerequisites:
 - CMake 3.10+
