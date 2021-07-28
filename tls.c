@@ -11,24 +11,19 @@
     #define MAX(x, y) ((x) > (y) ? x : y)
 #endif
 
-static inline const char* want_str(int ret) {
-    if (ret > 0) {
-        return "nothing";
-    }
-    if (ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-        return "wantwrite";
-    }
-    if (ret == MBEDTLS_ERR_SSL_WANT_READ) {
-        return "wantread";
-    }
-    return "error";
-}
-
 static int bufget(tls* conn, const char **data, size_t *count) {
     int err = 1;
     if (conn->first >= conn->last) {
         size_t got = 0;
-        err = mbedtls_ssl_read(&conn->ctx->ssl, (unsigned char*) conn->buffer, sizeof(conn->buffer));
+
+        do {
+            err = mbedtls_ssl_read(&conn->ctx->ssl, (void*) conn->buffer, sizeof(conn->buffer));
+            if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                continue;
+            }
+            break;
+        } while (1);
+
         if (err > 0) {
             got = err;
         }
@@ -43,11 +38,12 @@ static int bufget(tls* conn, const char **data, size_t *count) {
 
 static void bufskip(tls* conn, size_t count) {
     conn->first += count;
-    if (conn->first >= conn->last) 
+    if (conn->first >= conn->last) {
         conn->first = conn->last = 0;
+    }
 }
 
-static size_t recvraw(tls* conn, size_t wanted, luaL_Buffer *b) {
+static int recvraw(tls* conn, size_t wanted, luaL_Buffer *b) {
     int err = 1;
     size_t total = 0;
     while (err > 0) {
@@ -63,7 +59,7 @@ static size_t recvraw(tls* conn, size_t wanted, luaL_Buffer *b) {
     return err;
 }
 
-static size_t recvall(tls* conn, luaL_Buffer *b) {
+static int recvall(tls* conn, luaL_Buffer *b) {
     int err = 1;
     size_t total = 0;
     while (err > 0) {
@@ -80,7 +76,7 @@ static size_t recvall(tls* conn, luaL_Buffer *b) {
     } else return err;
 }
 
-static size_t recvline(tls* conn, luaL_Buffer *b) {
+static int recvline(tls* conn, luaL_Buffer *b) {
     int err = 1;
     while (err > 0) {
         size_t count, pos;
@@ -104,13 +100,21 @@ static size_t recvline(tls* conn, luaL_Buffer *b) {
     return err;
 }
 
-static size_t sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
+static int sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
     size_t total = 0;
     int err = 1;
     while (total < count && err > 0) {
         size_t done;
         size_t step = (count - total <= 8192) ? count - total : 8192;
-        err = mbedtls_ssl_write(&conn->ctx->ssl, data + total, step);
+
+        do {
+            err = mbedtls_ssl_write(&conn->ctx->ssl, data + total, step);
+            if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                continue;
+            }
+            break;
+        } while (1);
+
         if (err > 0) {
             done = err;
         }
@@ -123,7 +127,6 @@ static size_t sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
 static int meth_create(lua_State* L) {
     tls* conn = lua_newuserdata(L, sizeof(tls));
     memset(conn, 0, sizeof(tls));
-    conn->last_ret = 1;
 
     mbedtls_net_init(&conn->net);
     conn->ctx = luaL_testudata(L, 1, "TLS:Context");
@@ -152,43 +155,41 @@ static int meth_getfd(lua_State* L) {
 
 static int meth_handshake(lua_State* L) {
     tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
-    conn->last_ret = mbedtls_ssl_handshake(&conn->ctx->ssl);
-    lua_pushstring(L, want_str(conn->last_ret));
+
+    int ret;
+    while ((ret = mbedtls_ssl_handshake(&conn->ctx->ssl)) != 0) {
+        if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            lua_pushboolean(L, 0);
+            return 1;
+        }
+    }
+    lua_pushboolean(L, 1);
     return 1;
 }
 
 static int meth_receive(lua_State* L) {
-    size_t err = 1, top = lua_gettop(L);
+    int err = 1, top = lua_gettop(L);
+    tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
     luaL_Buffer b;
     luaL_buffinit(L, &b);
 
-    tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
     if (!lua_isnumber(L, 2)) {
         const char* p = luaL_optstring(L, 2, "*l");
         if (p[0] == '*' && p[1] == 'l') err = recvline(conn, &b);
         else if (p[0] == '*' && p[1] == 'a') err = recvall(conn, &b); 
         else luaL_argcheck(L, 0, 2, "invalid receive pattern");
     } else {
-        err = recvraw(conn, (size_t) lua_tonumber(L, 2), &b);
+        err = recvraw(conn, lua_tointeger(L, 2), &b);
     }
 
-    if (err < 0) {
-        luaL_pushresult(&b);
-        lua_pushstring(L, want_str(err));
-        lua_pushvalue(L, -2); 
-        lua_pushnil(L);
-        lua_replace(L, -4);
-    } else {
-        luaL_pushresult(&b);
-        lua_pushnil(L);
-        lua_pushnil(L);
-    }
-    conn->last_ret = err;
+    luaL_pushresult(&b);
+    lua_pushinteger(L, err);
+
     return lua_gettop(L) - top;
 }
 
 static int meth_send(lua_State* L) {
-    size_t err = 1, top = lua_gettop(L);
+    int err = 1, top = lua_gettop(L);
     size_t size = 0, sent = 0;
     tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
     const char *data = luaL_checklstring(L, 2, &size);
@@ -201,23 +202,15 @@ static int meth_send(lua_State* L) {
     if (end > (long) size) end = (long) size;
     if (start <= end) err = sendraw(conn, data+start-1, end-start+1, &sent);
 
-    if (err < 0) {
-        lua_pushnil(L);
-        lua_pushstring(L, want_str(err));
+    if (err > 0) {
+        lua_pushboolean(L, 1);
         lua_pushnumber(L, sent+start-1);
     } else {
-        lua_pushnumber(L, sent+start-1);
-        lua_pushnil(L);
-        lua_pushnil(L);
+        lua_pushboolean(L, 0);
+        lua_pushinteger(L, err);
     }
-    conn->last_ret = err;
-    return lua_gettop(L) - top;
-}
 
-static int meth_want(lua_State *L) {
-    tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
-    lua_pushstring(L, want_str(conn->last_ret));
-    return 1;
+    return lua_gettop(L) - top;
 }
 
 static int meth_destroy(lua_State *L) {
@@ -239,7 +232,6 @@ static luaL_Reg methods[] = {
     { "dohandshake", meth_handshake },
     { "receive",     meth_receive },
     { "send",        meth_send },
-    { "want",        meth_want },
     { NULL, NULL}
 };
 
