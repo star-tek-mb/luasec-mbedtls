@@ -45,7 +45,7 @@ void* testudata(lua_State *L, int ud, const char *tname) {
 // if endpoint is server ... - [key, cert, ca]
 // if endpoint is client ... - [ca, hostname?]
 static int create(lua_State *L) {
-    #define FAIL_AND_CLEANUP(s) do { cleanup(ctx); lua_pop(L, -1); lua_pushstring(L, s); lua_error(L); return 1; } while (0)
+    #define FAIL_AND_CLEANUP(s) do { cleanup(ctx); lua_pop(L, -1); lua_pushnil(L); lua_pushstring(L, s); return 1; } while (0)
 
     int n_args = lua_gettop(L);
     context* ctx = lua_newuserdata(L, sizeof(context));
@@ -70,7 +70,7 @@ static int create(lua_State *L) {
     } else if (strcmp(endpoint_str, "server") == 0) {
         endpoint = MBEDTLS_SSL_IS_SERVER;
     } else {
-        FAIL_AND_CLEANUP("wrong mode - should be client or server");
+        FAIL_AND_CLEANUP("Wrong mode - should be client or server");
     }
 
     if (mbedtls_ssl_config_defaults(&ctx->conf, endpoint, MBEDTLS_SSL_TRANSPORT_STREAM, MBEDTLS_SSL_PRESET_DEFAULT) != 0) {
@@ -107,23 +107,18 @@ static int create(lua_State *L) {
         mbedtls_pk_init(&ctx->key);
         ctx->inited = 2;
 
-        if ((ret = mbedtls_x509_crt_parse(&ctx->cert, cert, cert_len+1)) != 0) {
-            FAIL_AND_CLEANUP("Certificate parse error");
+        int ca_parsed = -1, cert_parsed = -1;
+        cert_parsed = mbedtls_x509_crt_parse(&ctx->cert, cert, cert_len+1);
+        ca_parsed = mbedtls_x509_crt_parse(&ctx->cert, ca, ca_len+1);
+        mbedtls_pk_parse_key(&ctx->key, key, key_len+1, NULL, 0, mbedtls_ctr_drbg_random, &ctx->ctr_drbg);
+
+        if (ca_parsed == 0) {
+            mbedtls_ssl_conf_ca_chain(&ctx->conf, ctx->cert.MBEDTLS_PRIVATE(next), NULL);
+        }
+        if (cert_parsed == 0) {
+            mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->key);
         }
 
-        if ((ret = mbedtls_x509_crt_parse(&ctx->cert, ca, ca_len+1)) != 0) {
-            FAIL_AND_CLEANUP("CA parse error");
-        }
-
-        // TODO: NULL, 0 - is a password, implement password
-        if ((ret = mbedtls_pk_parse_key(&ctx->key, key, key_len+1, NULL, 0, mbedtls_ctr_drbg_random, &ctx->ctr_drbg)) != 0) {
-            FAIL_AND_CLEANUP("Key parse error");
-        }
-
-        mbedtls_ssl_conf_ca_chain(&ctx->conf, ctx->cert.MBEDTLS_PRIVATE(next), NULL);
-        if ((ret = mbedtls_ssl_conf_own_cert(&ctx->conf, &ctx->cert, &ctx->key)) != 0) {
-            FAIL_AND_CLEANUP("Failed to set certificate");
-        }
     } else {
         size_t ca_len = 0;
         const char* ca = lua_tolstring(L, 3, &ca_len);
@@ -131,10 +126,9 @@ static int create(lua_State *L) {
         mbedtls_x509_crt_init(&ctx->cert);
         ctx->inited = 3;
 
-        if ((ret = mbedtls_x509_crt_parse(&ctx->cert, ca, ca_len+1)) != 0) {
-            FAIL_AND_CLEANUP("CA parse error");
+        if ((ret = mbedtls_x509_crt_parse(&ctx->cert, ca, ca_len+1)) == 0) {
+            mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->cert, NULL);
         }
-        mbedtls_ssl_conf_ca_chain(&ctx->conf, &ctx->cert, NULL);
     }
 
     if (mbedtls_ssl_setup(&ctx->ssl, &ctx->conf) != 0) {
