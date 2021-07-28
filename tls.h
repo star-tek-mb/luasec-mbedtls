@@ -13,4 +13,4 @@ typedef struct {
     size_t first, last;
 } tls;
 
-API int luaopen_ssl_core(lua_State *L);
+API int luaopen_tls_core(lua_State *L);

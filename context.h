@@ -19,4 +19,4 @@ typedef struct {
     int inited;
 } context;
 
-API int luaopen_ssl_context(lua_State *L);
+API int luaopen_tls_context(lua_State *L);
