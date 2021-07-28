@@ -9,7 +9,6 @@
 typedef struct {
     mbedtls_net_context net;
     context* ctx;
-    int last_ret;
     char buffer[8192];
     size_t first, last;
 } tls;
