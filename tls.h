@@ -1,6 +1,6 @@
 #pragma once
 
-#include <lua.h>
+#include "lua.h"
 #include <mbedtls/net_sockets.h>
 #include <mbedtls/timing.h>
 

@@ -1,6 +1,7 @@
 #pragma once
 
-#include <lua.h>
+#include "lua.h"
+
 #include <mbedtls/ctr_drbg.h>
 #include <mbedtls/debug.h>
 #include <mbedtls/entropy.h>
