@@ -40,10 +40,10 @@ ninja
 
 # TODOS
 - Update CMake file (Lua finding instead of hardcoded path to Lua)
-- Realize non-blocking IO for handshake/read/write operations (timeouts)
+- ~~Realize non-blocking IO for handshake/read/write operations (timeouts)~~
 - Compatibility with LuaSec?
 - More crypto, tls, ssl, mbedTLS API?
-- Error codes to string
+- ~~Error codes to string~~
 - Stabilize luasec-mbedtls internal API
 
 

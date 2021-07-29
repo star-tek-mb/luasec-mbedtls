@@ -11,13 +11,34 @@
     #define MAX(x, y) ((x) > (y) ? x : y)
 #endif
 
+static const char* error_to_string(int err) {
+    if (err >= 0) {
+        return "nothing";
+    }
+
+    switch (err) {
+        case MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY:
+            return "closed";
+        case MBEDTLS_ERR_SSL_WANT_READ:
+            return "wantread";
+        case MBEDTLS_ERR_SSL_WANT_WRITE:
+            return "wantwrite";
+    }
+    return "error";
+}
+
 static int bufget(tls* conn, const char **data, size_t *count) {
     int err = 1;
+
     if (conn->first >= conn->last) {
         size_t got = 0;
 
+        mbedtls_timing_set_delay(&conn->delay, conn->timeout, conn->timeout);
         do {
             err = mbedtls_ssl_read(&conn->ctx->ssl, (void*) conn->buffer, sizeof(conn->buffer));
+            if (mbedtls_timing_get_delay(&conn->delay) == 2) {
+                break;
+            }
             if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 continue;
             }
@@ -103,12 +124,17 @@ static int recvline(tls* conn, luaL_Buffer *b) {
 static int sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
     size_t total = 0;
     int err = 1;
+
     while (total < count && err > 0) {
         size_t done;
         size_t step = (count - total <= 8192) ? count - total : 8192;
 
+        mbedtls_timing_set_delay(&conn->delay, conn->timeout, conn->timeout);
         do {
             err = mbedtls_ssl_write(&conn->ctx->ssl, data + total, step);
+            if (mbedtls_timing_get_delay(&conn->delay) == 2) {
+                break;
+            }
             if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
                 continue;
             }
@@ -127,6 +153,7 @@ static int sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
 static int meth_create(lua_State* L) {
     tls* conn = lua_newuserdata(L, sizeof(tls));
     memset(conn, 0, sizeof(tls));
+    conn->timeout = 0;
 
     mbedtls_net_init(&conn->net);
     conn->ctx = luaL_testudata(L, 1, "TLS:Context");
@@ -156,11 +183,20 @@ static int meth_getfd(lua_State* L) {
 static int meth_handshake(lua_State* L) {
     tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
 
-    int ret;
-    while ((ret = mbedtls_ssl_handshake(&conn->ctx->ssl)) != 0) {
-        if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE) {
+    int err;
+    mbedtls_timing_set_delay(&conn->delay, conn->timeout, conn->timeout);
+    while ((err = mbedtls_ssl_handshake(&conn->ctx->ssl)) != 0) {
+
+        if (mbedtls_timing_get_delay(&conn->delay) == 2) {
             lua_pushboolean(L, 0);
-            return 1;
+            lua_pushstring(L, error_to_string(err));
+            return 2;
+        }
+
+        if (err != MBEDTLS_ERR_SSL_WANT_READ && err != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            lua_pushboolean(L, 0);
+            lua_pushstring(L, error_to_string(err));
+            return 2;
         }
     }
     lua_pushboolean(L, 1);
@@ -182,8 +218,13 @@ static int meth_receive(lua_State* L) {
         err = recvraw(conn, lua_tointeger(L, 2), &b);
     }
 
-    luaL_pushresult(&b);
-    lua_pushinteger(L, err);
+    if (err >= 0) {
+        luaL_pushresult(&b);
+        lua_pushnil(L);
+    } else {
+        luaL_pushresult(&b);
+        lua_pushstring(L, error_to_string(err));
+    }
 
     return lua_gettop(L) - top;
 }
@@ -207,10 +248,16 @@ static int meth_send(lua_State* L) {
         lua_pushnumber(L, sent+start-1);
     } else {
         lua_pushboolean(L, 0);
-        lua_pushinteger(L, err);
+        lua_pushstring(L, error_to_string(err));
     }
 
     return lua_gettop(L) - top;
+}
+
+static int meth_settimeout(lua_State *L) {
+    tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
+    conn->timeout = (int) (lua_tonumber(L, 2) * 1000); // from sec to msec
+    return 0;
 }
 
 static int meth_destroy(lua_State *L) {
@@ -232,6 +279,7 @@ static luaL_Reg methods[] = {
     { "dohandshake", meth_handshake },
     { "receive",     meth_receive },
     { "send",        meth_send },
+    { "settimeout",  meth_settimeout },
     { NULL, NULL}
 };
 
