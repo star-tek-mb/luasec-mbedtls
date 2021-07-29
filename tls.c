@@ -171,10 +171,6 @@ static int meth_setfd(lua_State* L) {
     return 0;
 }
 
-static int meth_close(lua_State* L) {
-    return meth_destroy(L);
-}
-
 static int meth_getfd(lua_State* L) {
     tls* conn = luaL_checkudata(L, 1, "TLS:Connection");
     lua_pushinteger(L, conn->net.MBEDTLS_PRIVATE(fd));
@@ -246,7 +242,7 @@ static int meth_send(lua_State* L) {
 
     if (err > 0) {
         lua_pushboolean(L, 1);
-        lua_pushnumber(L, sent+start-1);
+        lua_pushinteger(L, sent+start-1);
     } else {
         lua_pushboolean(L, 0);
         lua_pushstring(L, error_to_string(err));
@@ -266,6 +262,10 @@ static int meth_destroy(lua_State *L) {
     mbedtls_ssl_close_notify(&conn->ctx->ssl);
     mbedtls_net_free(&conn->net);
     return 0;
+}
+
+static int meth_close(lua_State* L) {
+    return meth_destroy(L);
 }
 
 static int meth_tostring(lua_State *L) {

@@ -8,7 +8,8 @@
 
 #if (LUA_VERSION_NUM == 501)
 
-    #define luaL_testudata(L, ud, tname)  testudata(L, ud, tname)
+    void* testudata(lua_State *L, int ud, const char *tname);
+    #define luaL_testudata(L, ud, tname) testudata(L, ud, tname)
     #define setfuncs(L, R)    luaL_register(L, NULL, R)
     #define lua_rawlen(L, i)  lua_objlen(L, i)
 
