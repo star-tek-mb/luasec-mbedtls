@@ -1,0 +1,63 @@
+name: Build
+
+on: [push]
+
+env:
+  LUA_VERSION: 5.1.5
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      matrix:
+        config:
+          - name: "Windows Latest MSVC"
+            os: windows-latest
+            environment_script: "C:/Program Files (x86)/Microsoft Visual Studio/2019/Enterprise/VC/Auxiliary/Build/vcvars64.bat"
+            prefix: ''
+            suffix: 'dll'
+          - name: "Windows Latest MinGW"
+            os: windows-latest
+            build_type: "Release"
+            prefix: ''
+            suffix: 'dll'
+          - name: "Ubuntu Latest GCC"
+            os: ubuntu-latest
+            build_type: "Release"
+            prefix: 'lib'
+            suffix: 'so'
+          - name: "macOS Latest Clang"
+            os: macos-latest
+            build_type: "Release"
+            prefix: 'lib'
+            suffix: 'dylib'
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Fetch and build Lua
+      shell: cmake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -P {0}
+      run: |
+        set(LUA_VERSION ${{env.LUA_VERSION}})
+
+        file(DOWNLOAD "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" "lua.tar.gz" SHOW_PROGRESS)
+        file(ARCHIVE_EXTRACT INPUT "lua.tar.gz")
+
+        file(GLOB LUA_SOURCE "lua-${LUA_VERSION}/src/l*.c")
+        list(REMOVE_ITEM LUA_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/lua-${LUA_VERSION}/src/lua.c")
+        list(REMOVE_ITEM LUA_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/lua-${LUA_VERSION}/src/luac.c")
+
+        string(REPLACE "." ";" VERSION_LIST ${LUA_VERSION})
+        list(GET VERSION_LIST 0 LUA_VERSION_MAJOR)
+        list(GET VERSION_LIST 1 LUA_VERSION_MINOR)
+        list(GET VERSION_LIST 2 LUA_VERSION_PATCH)
+
+        add_library(lua${LUA_VERSION_MAJOR}${LUA_VERSION_MINOR} SHARED ${LUA_SOURCE})
+
+    - name: Configure CMake
+      run: cmake -DLUA_LIBRARY="${{matrix.config.prefix}}lua51.${{matrix.config.suffix}}" -DLUA_INCLUDE_DIR="lua/src" -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}}
+
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
