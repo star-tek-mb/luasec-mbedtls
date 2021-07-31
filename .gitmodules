@@ -2,4 +2,3 @@
 	path = mbedtls
 	url = https://github.com/ARMmbed/mbedtls
 	branch = master
-	shallow = true
