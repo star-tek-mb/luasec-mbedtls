@@ -38,8 +38,9 @@ jobs:
     - uses: actions/checkout@v2
 
     - name: Fetch and build Lua
-      shell: cmake -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -P {0}
+      shell: cmake -P {0}
       run: |
+        set(CMAKE_BUILD_TYPE ${{env.BUILD_TYPE}})
         set(LUA_VERSION ${{env.LUA_VERSION}})
 
         file(DOWNLOAD "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" "lua.tar.gz" SHOW_PROGRESS)
