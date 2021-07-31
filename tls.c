@@ -41,6 +41,7 @@ static int bufget(tls* conn, const char **data, size_t *count) {
                 break;
             }
             if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                mbedtls_net_poll(&conn->net, err == MBEDTLS_ERR_SSL_WANT_READ ? MBEDTLS_NET_POLL_READ : MBEDTLS_NET_POLL_WRITE, conn->timeout);
                 continue;
             }
             break;
@@ -137,6 +138,7 @@ static int sendraw(tls* conn, const char *data, size_t count, size_t *sent) {
                 break;
             }
             if (err == MBEDTLS_ERR_SSL_WANT_READ || err == MBEDTLS_ERR_SSL_WANT_WRITE) {
+                mbedtls_net_poll(&conn->net, err == MBEDTLS_ERR_SSL_WANT_READ ? MBEDTLS_NET_POLL_READ : MBEDTLS_NET_POLL_WRITE, conn->timeout);
                 continue;
             }
             break;
@@ -195,6 +197,8 @@ static int meth_handshake(lua_State* L) {
             lua_pushstring(L, error_to_string(err));
             return 2;
         }
+
+        mbedtls_net_poll(&conn->net, err == MBEDTLS_ERR_SSL_WANT_READ ? MBEDTLS_NET_POLL_READ : MBEDTLS_NET_POLL_WRITE, conn->timeout);
     }
     lua_pushboolean(L, 1);
     return 1;
